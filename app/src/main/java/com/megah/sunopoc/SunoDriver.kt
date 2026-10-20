@@ -156,38 +156,88 @@ object SunoDriver {
     } catch (e) {}
     return t;
   }
+  // Heading / label text NEAR a field (previous sibling, or the first
+  // heading-ish element within a few ancestors). Suno labels its boxes
+  // with nearby headings rather than placeholders on the current page,
+  // so identification has to look around the field, not just at it.
+  function nearbyText(el) {
+    var t = '';
+    try {
+      var sib = el.previousElementSibling;
+      if (sib) t += ' ' + (sib.textContent || '');
+      var node = el;
+      for (var i = 0; i < 3 && node; i++) {
+        node = node.parentElement;
+        if (!node) break;
+        var h = node.querySelector('label, h1, h2, h3, h4');
+        if (h && h !== el && !el.contains(h)) { t += ' ' + (h.textContent || ''); break; }
+      }
+    } catch (e) {}
+    return t.toLowerCase().slice(0, 200);
+  }
   function candidates() {
     return Array.prototype.slice.call(
-      document.querySelectorAll('textarea, input[type="text"], input:not([type])')
+      document.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"]')
     ).filter(function (el) {
       return !el.disabled && el.type !== 'hidden' && el.offsetParent !== null;
     });
   }
-  function isLyricsField(el) { return fieldText(el).indexOf('lyric') !== -1; }
-  // A REAL song-description field: description wording, textarea preferred,
-  // and NEVER a lyrics field.
+  function isLyricsField(el) {
+    return (fieldText(el) + ' ' + nearbyText(el)).indexOf('lyric') !== -1;
+  }
+  function isTextAreaLike(el) { return el.tagName === 'TEXTAREA' || el.isContentEditable; }
+  // A REAL song-description field — never a lyrics field. Identification:
+  // description wording on/around the field wins; otherwise, if the page
+  // has NO lyrics field and exactly ONE big text box, that box is the
+  // description by elimination (Suno's Simple mode).
   function strictDescField(exclude) {
-    var els = candidates().filter(function (el) {
+    var pool = candidates().filter(function (el) {
       return el !== exclude && !isLyricsField(el);
     });
     var best = null, bestScore = 0;
-    els.forEach(function (el) {
-      var t = fieldText(el);
+    pool.forEach(function (el) {
+      var t = fieldText(el) + ' ' + nearbyText(el);
       var score = 0;
       ['song description', 'describe', 'description'].forEach(function (k) {
         if (t.indexOf(k) !== -1) score += 2;
       });
-      if (el.tagName === 'TEXTAREA') score += 1;
+      if (isTextAreaLike(el)) score += 1;
       if (score > bestScore) { bestScore = score; best = el; }
     });
-    return (best && bestScore >= 2) ? best : null;
+    if (best && bestScore >= 2) return best;
+    var hasLyrics = candidates().some(isLyricsField);
+    var big = pool.filter(isTextAreaLike);
+    if (!hasLyrics && big.length === 1) return big[0];
+    return null;
+  }
+  // One log line naming every field the driver can see — ends the
+  // guessing about what Suno's page actually contains.
+  function dumpFields() {
+    var list = candidates().slice(0, 6).map(function (el) {
+      return el.tagName + (el.isContentEditable ? '(editable)' : '') +
+        ' ph="' + (el.getAttribute('placeholder') || '') + '"' +
+        ' near="' + nearbyText(el).trim().slice(0, 40) + '"' +
+        (isLyricsField(el) ? ' [LYRICS]' : '');
+    });
+    log('Fields on page: ' + (list.length ? list.join(' | ') : 'NONE'));
   }
   function setValue(el, value) {
+    el.focus();
+    if (el.isContentEditable) {
+      var ok = false;
+      try {
+        document.execCommand('selectAll', false, null);
+        ok = document.execCommand('insertText', false, value);
+      } catch (e) {}
+      if (!ok) el.textContent = value;
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
     var proto = el.tagName === 'TEXTAREA'
       ? window.HTMLTextAreaElement.prototype
       : window.HTMLInputElement.prototype;
     var desc = Object.getOwnPropertyDescriptor(proto, 'value');
-    el.focus();
     if (desc && desc.set) { desc.set.call(el, value); } else { el.value = value; }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -211,6 +261,7 @@ $JS_HELPERS
   }
   try {
     window.__sdAbort = false;
+    dumpFields();
     var hasLyrics = candidates().some(isLyricsField);
     var desc = strictDescField(null);
     if (hasLyrics && !desc) {
@@ -261,7 +312,6 @@ $JS_HELPERS
     return (best && bestScore >= 2) ? best : null;
   }
   try {
-    window.__sdBaseline = document.querySelectorAll('a[href*="/song/"]').length;
     var titleWanted = $titleLiteral;
     var descText = $descLiteral;
     var styleText = $styleLiteral;
@@ -269,9 +319,11 @@ $JS_HELPERS
     var descEl = strictDescField(null);
     if (!descEl) {
       window.__sdAbort = true;
+      delete window.__sdBaseline;
       log('Fill: ABORT — no Song Description field on this page. The description was NOT put in the Lyrics box and Create was NOT clicked, so no credits were spent. Open the Suno Page, switch Suno to Simple mode, then tap create again.');
       return;
     }
+    window.__sdBaseline = document.querySelectorAll('a[href*="/song/"]').length;
     var styleEl = findField(['style', 'genre'], [descEl]);
     if (!styleEl && styleText) {
       descText = descText + '\n\nStyle: ' + styleText;
