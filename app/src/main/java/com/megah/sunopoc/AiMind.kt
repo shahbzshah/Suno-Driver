@@ -123,6 +123,17 @@ JSON object, no markdown fences, no commentary:
 
 Rules that can never be broken:
 - Natural human language, the way a real person talks. No poetic AI cliches.
+- FAITHFULNESS — the song idea is the boss:
+  * Keep EVERY element of the idea: who it speaks to, what it says, and
+    its feeling. Never drop part of it.
+  * Never soften the idea's direct words. If the idea says sorry, the
+    song is an APOLOGY — the description must say sorry / apology, not
+    just "regret". If the idea carries a wish or blessing for someone,
+    the wish stays in the description.
+  * Never add a tone the idea does not have. A sincere idea stays
+    sincere — do not call it light-hearted. The channel's feel-good
+    energy describes the MUSIC (sound, groove), never a licence to
+    change the message.
 - BANNED WORDS (never use any of these, in title, description or style):
   echoes, echo, fading, fade, shadow, shadows, twilight, neon, stars,
   starlight, moonlight, ashes, ash, glow, glowing, dawn.
@@ -138,6 +149,27 @@ Rules that can never be broken:
     fun bannedWordsIn(text: String): List<String> {
         val lower = " " + text.lowercase().replace(Regex("[^a-z ]"), " ") + " "
         return BANNED.filter { lower.contains(" $it ") }
+    }
+
+    // Emotional anchor stems from Megah's idea that the AI must not drop
+    // or soften (his catch, 2026-10-21: his apology + goodwill wish came
+    // back as generic "regret" — an 80% match). If an anchor is in the
+    // idea, it must survive into the title/description by stem.
+    private val ANCHORS = listOf("sorry", "apolog", "wish", "forgiv", "thank", "miss")
+
+    /** Returns a correction instruction, or null if the prompt is faithful. */
+    fun fidelityCorrection(idea: String, prompt: SongPrompt): String? {
+        val ideaLower = idea.lowercase()
+        val outLower = (prompt.title + " " + prompt.description).lowercase()
+        val missing = ANCHORS.filter { stem ->
+            ideaLower.contains(stem) && !outLower.contains(stem)
+        }
+        if (missing.isEmpty()) return null
+        return "Your prompt dropped or softened key words from Megah's idea: " +
+            missing.joinToString(", ") + ". Rewrite keeping his exact meaning: " +
+            "if he said sorry, the song must say sorry — an apology, not just " +
+            "regret; if he wished someone well, keep the wish. Do not add a " +
+            "tone he did not ask for."
     }
 
     /**
@@ -191,6 +223,16 @@ Rules that can never be broken:
                         correction = "Your previous title \"${prompt.title}\" is too similar to the " +
                             "existing song \"$collision\" on this channel. Choose a clearly different " +
                             "title that shares no two-word phrase with it."
+                        continue
+                    }
+                    val fidelity = fidelityCorrection(idea, prompt)
+                    if (fidelity != null) {
+                        if (attempt >= 3) {
+                            onDone(null, "AI kept softening your idea — it would not keep your exact words. Nothing was created. Try again, or sharpen the idea line.")
+                            return@execute
+                        }
+                        onStatus("AI: prompt softened your idea — asking for a faithful rewrite…")
+                        correction = fidelity
                         continue
                     }
                     onDone(prompt, null)
