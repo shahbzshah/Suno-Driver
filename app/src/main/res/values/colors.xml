@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Suno Driver — Stitch design tokens (studio-at-night) -->
+    <color name="sd_bg">#151311</color>
+    <color name="sd_card">#1D1B19</color>
+    <color name="sd_card_high">#262320</color>
+    <color name="sd_inset">#100E0C</color>
+    <color name="sd_border">#453A2C</color>
+    <color name="sd_border_soft">#33291F</color>
+    <color name="sd_amber">#F59E0B</color>
+    <color name="sd_amber_light">#FFC174</color>
+    <color name="sd_on_amber">#472A00</color>
+    <color name="sd_text">#E8E1DD</color>
+    <color name="sd_text_dim">#D8C3AD</color>
+    <color name="sd_text_faint">#A08E7A</color>
+    <color name="sd_green">#4DE082</color>
+    <color name="sd_log_green">#57D977</color>
+</resources>
