@@ -50,9 +50,6 @@ class MainActivity : Activity() {
     private lateinit var llCta: LinearLayout
     private lateinit var etApiKey: EditText
     private lateinit var etIdea: EditText
-    private lateinit var etDescription: EditText
-    private lateinit var etStyle: EditText
-    private lateinit var etTitle: EditText
     private lateinit var btnTabWrite: TextView
     private lateinit var btnTabSuno: TextView
     private lateinit var btnAiCreate: TextView
@@ -113,9 +110,6 @@ class MainActivity : Activity() {
         llCta = findViewById(R.id.llCta)
         etApiKey = findViewById(R.id.etApiKey)
         etIdea = findViewById(R.id.etIdea)
-        etDescription = findViewById(R.id.etDescription)
-        etStyle = findViewById(R.id.etStyle)
-        etTitle = findViewById(R.id.etTitle)
         btnTabWrite = findViewById(R.id.btnTabWrite)
         btnTabSuno = findViewById(R.id.btnTabSuno)
         btnAiCreate = findViewById(R.id.btnAiCreate)
@@ -257,15 +251,6 @@ class MainActivity : Activity() {
         appendLog("Loading ${SunoDriver.SUNO_CREATE_URL} — tap \"Suno Page\" at the top to log in by hand; your login will be remembered.")
         webView.loadUrl(SunoDriver.SUNO_CREATE_URL)
 
-        findViewById<TextView>(R.id.btnFillCreate).setOnClickListener {
-            val title = etTitle.text.toString().trim()
-            val description = etDescription.text.toString()
-            val style = etStyle.text.toString()
-            appendLog("Fill & Create tapped — driving the page…")
-            SunoDriver.fillAndCreate(webView, title, description, style)
-            showSuno()
-        }
-
         findViewById<TextView>(R.id.btnCopyLogs).setOnClickListener {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("Suno Driver logs", tvLog.text.toString()))
@@ -326,8 +311,6 @@ class MainActivity : Activity() {
                         appendLog("AI title: ${prompt.title.ifEmpty { "(none)" }}")
                         appendLog("AI description: ${prompt.description}")
                         appendLog("AI style: ${prompt.style}")
-                        etDescription.setText(prompt.description)
-                        etStyle.setText(prompt.style)
                         appendLog("AI prompt ready — driving Suno…")
                         SunoDriver.fillAndCreate(webView, prompt.title, prompt.description, prompt.style)
                         showSuno()
