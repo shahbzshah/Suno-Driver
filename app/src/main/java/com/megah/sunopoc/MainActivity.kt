@@ -52,6 +52,7 @@ class MainActivity : Activity() {
     private lateinit var etIdea: EditText
     private lateinit var etDescription: EditText
     private lateinit var etStyle: EditText
+    private lateinit var etTitle: EditText
     private lateinit var btnTabWrite: TextView
     private lateinit var btnTabSuno: TextView
     private lateinit var btnAiCreate: TextView
@@ -114,6 +115,7 @@ class MainActivity : Activity() {
         etIdea = findViewById(R.id.etIdea)
         etDescription = findViewById(R.id.etDescription)
         etStyle = findViewById(R.id.etStyle)
+        etTitle = findViewById(R.id.etTitle)
         btnTabWrite = findViewById(R.id.btnTabWrite)
         btnTabSuno = findViewById(R.id.btnTabSuno)
         btnAiCreate = findViewById(R.id.btnAiCreate)
@@ -131,9 +133,9 @@ class MainActivity : Activity() {
         etApiKey.setText(prefs.getString(PREF_API_KEY, ""))
         updateAuthState()
 
-        // Pre-filled manual test content (editable).
-        etDescription.setText(DEFAULT_DESCRIPTION)
-        etStyle.setText(DEFAULT_STYLE)
+        // Manual fields start EMPTY (they used to ship pre-filled with
+        // PoC test content — one careless tap spent credits on a test
+        // song; removed 2026-10-20 at Megah's catch).
 
         // --- Tabs + refresh + settings ---
         btnTabWrite.setOnClickListener { showWrite() }
@@ -256,10 +258,11 @@ class MainActivity : Activity() {
         webView.loadUrl(SunoDriver.SUNO_CREATE_URL)
 
         findViewById<TextView>(R.id.btnFillCreate).setOnClickListener {
+            val title = etTitle.text.toString().trim()
             val description = etDescription.text.toString()
             val style = etStyle.text.toString()
             appendLog("Fill & Create tapped — driving the page…")
-            SunoDriver.fillAndCreate(webView, description, style)
+            SunoDriver.fillAndCreate(webView, title, description, style)
             showSuno()
         }
 
@@ -326,7 +329,7 @@ class MainActivity : Activity() {
                         etDescription.setText(prompt.description)
                         etStyle.setText(prompt.style)
                         appendLog("AI prompt ready — driving Suno…")
-                        SunoDriver.fillAndCreate(webView, prompt.description, prompt.style)
+                        SunoDriver.fillAndCreate(webView, prompt.title, prompt.description, prompt.style)
                         showSuno()
                     }
                 }
@@ -397,7 +400,9 @@ class MainActivity : Activity() {
                 state.startsWith("FORM") ->
                     "READY FOR GENERATION" to R.color.sd_text
                 state.startsWith("RESULTS") ->
-                    "SONGS ON PAGE — GENERATING / READY" to R.color.sd_text
+                    "NEW SONGS — GENERATING / READY" to R.color.sd_text
+                state.startsWith("LIBRARY") ->
+                    "ON SUNO — LIBRARY VISIBLE" to R.color.sd_text_dim
                 state.startsWith("SIGNED_OUT") ->
                     "SIGNED OUT — LOG IN ON THE SUNO PAGE" to R.color.sd_amber
                 else -> "SUNO LOADED" to R.color.sd_text
@@ -467,14 +472,5 @@ class MainActivity : Activity() {
         private const val MAX_LOG_LINES = 100
         private const val PREFS_NAME = "sunopoc_prefs"
         private const val PREF_API_KEY = "nvidia_api_key"
-
-        private const val DEFAULT_DESCRIPTION =
-            "A romantic summer love song about holding the one you love close and " +
-                "wishing the season would never end. Chorus comes in right at the " +
-                "start, warm and catchy."
-
-        private const val DEFAULT_STYLE =
-            "tropical house, melodic edm pop, warm plucks, laid-back groove, " +
-                "soft emotive male vocals, romantic feel-good summer vibe"
     }
 }

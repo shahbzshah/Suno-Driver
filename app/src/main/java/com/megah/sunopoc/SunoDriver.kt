@@ -9,12 +9,13 @@ import org.json.JSONObject
 /**
  * SunoDriver — ALL Suno page automation lives in this one file.
  *
- * IMPORTANT (proof-of-concept): the selectors below are BEST-EFFORT guesses
- * based on how Suno's create page is generally structured (a description /
- * lyrics textarea, a style field, and a "Create" button). They WILL need to
- * be tuned after the first real-device run, when we can see what the live
- * DOM actually looks like. Every step reports back through the "PocBridge"
- * JavascriptInterface so failures are visible in the on-screen status log.
+ * IMPORTANT (proof-of-concept): the selectors below are BEST-EFFORT,
+ * tuned against how Suno's create page behaved in the first real-device
+ * runs. The create flow is mode-aware (see the create-flow comment): it
+ * fills ONLY a genuine Song Description field and aborts rather than
+ * ever writing a description into the Lyrics box. Every step reports
+ * back through the "PocBridge" JavascriptInterface so failures are
+ * visible in the on-screen status log.
  */
 object SunoDriver {
 
@@ -103,39 +104,43 @@ object SunoDriver {
 """
 
     // ------------------------------------------------------------------
-    // Step 1 + 2: fill the form, then click Create
+    // Create flow: MODE check -> strict FILL -> guarded CREATE click.
+    //
+    // Why the mode check exists (bug fixed 2026-10-20, Megah's catch):
+    // Suno's create page has two modes. SIMPLE mode has a real Song
+    // Description field (Suno writes the lyrics from it — Megah's
+    // workflow). CUSTOM mode has NO description field: it has a Lyrics
+    // box, a Style box and a Title box. The old driver treated
+    // "description" and "lyrics" as the same field and happily wrote the
+    // song description into the Lyrics box, so Suno sang the description
+    // prose as if it were lyrics. The driver now:
+    //   1. detects a Lyrics box with no Description field (Custom mode)
+    //      and clicks the page's "Simple" toggle;
+    //   2. fills ONLY a genuine Song Description field — lyrics fields
+    //      are explicitly excluded;
+    //   3. ABORTS (no Create click, credits untouched) if no real
+    //      description field can be found.
+    // It also fills Suno's Title field when the page has one, and records
+    // a baseline song-link count so the poller can tell NEW songs apart
+    // from the library list.
     // ------------------------------------------------------------------
 
-    fun fillAndCreate(webView: WebView, description: String, style: String) {
-        val fillScript = buildFillScript(description, style)
-        webView.evaluateJavascript(fillScript, null)
-        // Give the page's framework a beat to register the input events and
-        // enable the Create button before we try to click it.
-        Handler(Looper.getMainLooper()).postDelayed({
+    fun fillAndCreate(webView: WebView, title: String, description: String, style: String) {
+        val handler = Handler(Looper.getMainLooper())
+        webView.evaluateJavascript(MODE_SCRIPT, null)
+        // Let a mode switch re-render the form before filling.
+        handler.postDelayed({
+            webView.evaluateJavascript(buildFillScript(title, description, style), null)
+        }, 1500)
+        // Give the page's framework a beat to register the fill and
+        // enable the Create button before clicking.
+        handler.postDelayed({
             webView.evaluateJavascript(CREATE_CLICK_SCRIPT, null)
-        }, 1200)
+        }, 2900)
     }
 
-    /**
-     * Finds the description/lyrics field and the style field and fills them.
-     *
-     * Matching strategy (best-effort, tune after first device run):
-     *  - Look at every visible textarea / text input.
-     *  - Score each by keywords in its placeholder / aria-label / name /
-     *    associated <label> text ("song description", "lyrics", "describe",
-     *    for the description; "style", "genre" for the style).
-     *  - Description prefers a <textarea>; style excludes the element that
-     *    was already used for the description.
-     *  - Fallbacks: first textarea for description; first unused field for
-     *    style.
-     * Values are set with the native prototype setter + input/change events
-     * so React-style controlled inputs actually register them.
-     */
-    private fun buildFillScript(description: String, style: String): String {
-        val descLiteral = JSONObject.quote(description)
-        val styleLiteral = JSONObject.quote(style)
-        return """
-(function () {
+    /** Field helpers shared by the mode and fill scripts. */
+    private const val JS_HELPERS = """
   function log(m) { try { window.PocBridge.log(m); } catch (e) {} }
   function fieldText(el) {
     var t = '';
@@ -158,22 +163,24 @@ object SunoDriver {
       return !el.disabled && el.type !== 'hidden' && el.offsetParent !== null;
     });
   }
-  function findField(keywords, preferTextarea, exclude) {
-    var els = candidates().filter(function (el) { return el !== exclude; });
+  function isLyricsField(el) { return fieldText(el).indexOf('lyric') !== -1; }
+  // A REAL song-description field: description wording, textarea preferred,
+  // and NEVER a lyrics field.
+  function strictDescField(exclude) {
+    var els = candidates().filter(function (el) {
+      return el !== exclude && !isLyricsField(el);
+    });
     var best = null, bestScore = 0;
     els.forEach(function (el) {
       var t = fieldText(el);
       var score = 0;
-      keywords.forEach(function (k) { if (t.indexOf(k) !== -1) score += 2; });
-      if (preferTextarea && el.tagName === 'TEXTAREA') score += 1;
+      ['song description', 'describe', 'description'].forEach(function (k) {
+        if (t.indexOf(k) !== -1) score += 2;
+      });
+      if (el.tagName === 'TEXTAREA') score += 1;
       if (score > bestScore) { bestScore = score; best = el; }
     });
-    if (best && bestScore >= 2) return best;
-    if (preferTextarea) {
-      var ta = els.filter(function (e) { return e.tagName === 'TEXTAREA'; })[0];
-      return ta || els[0] || null;
-    }
-    return els[0] || null;
+    return (best && bestScore >= 2) ? best : null;
   }
   function setValue(el, value) {
     var proto = el.tagName === 'TEXTAREA'
@@ -185,34 +192,123 @@ object SunoDriver {
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
+"""
+
+    /** Step 1: if the page is in Custom mode (Lyrics box, no Description
+     *  field), click Suno's "Simple" toggle so a description field exists. */
+    private const val MODE_SCRIPT = """
+(function () {
+$JS_HELPERS
+  function findSimpleToggle() {
+    var all = document.querySelectorAll('button, [role="tab"], [role="button"], a, div, span');
+    var m = Array.prototype.filter.call(all, function (e) {
+      return (e.textContent || '').trim().toLowerCase() === 'simple' && e.offsetParent !== null;
+    });
+    m.sort(function (a, b) {
+      return (a.clientWidth * a.clientHeight) - (b.clientWidth * b.clientHeight);
+    });
+    return m[0] || null;
+  }
   try {
-    log('Fill: scanning ' + candidates().length + ' candidate field(s) on ' + location.pathname);
-    var descEl = findField(['song description', 'lyrics', 'describe', 'description', 'prompt'], true, null);
-    if (descEl) {
-      setValue(descEl, $descLiteral);
-      log('Fill: description/lyrics field FILLED (' + descEl.tagName + ', placeholder="' + (descEl.getAttribute('placeholder') || '') + '")');
+    window.__sdAbort = false;
+    var hasLyrics = candidates().some(isLyricsField);
+    var desc = strictDescField(null);
+    if (hasLyrics && !desc) {
+      var toggle = findSimpleToggle();
+      if (toggle) {
+        toggle.click();
+        log('Mode: page was in Custom mode (Lyrics box) — switched to Simple');
+      } else {
+        log('Mode: WARN — Lyrics box present but no Simple toggle found; fill will verify');
+      }
+    } else if (desc) {
+      log('Mode: Song Description field present — Simple mode, good');
+    } else if (hasLyrics) {
+      log('Mode: only a Lyrics box is visible — fill will verify before writing anything');
     } else {
-      log('Fill: description/lyrics field NOT FOUND');
-    }
-    var styleEl = findField(['style', 'genre'], false, descEl);
-    if (styleEl) {
-      setValue(styleEl, $styleLiteral);
-      log('Fill: style field FILLED (' + styleEl.tagName + ', placeholder="' + (styleEl.getAttribute('placeholder') || '') + '")');
-    } else {
-      log('Fill: style field NOT FOUND (page may be in simple/description-only mode)');
+      log('Mode: WARN — no create fields found (page loading or signed out?)');
     }
   } catch (e) {
-    log('Fill: ERROR ' + e.message);
+    log('Mode: ERROR ' + e.message);
+  }
+})();
+"""
+
+    /**
+     * Step 2: fill description (strict field only), style (folded into
+     * the description when Simple mode has no style field), and the title
+     * when the page offers a title field. Sets the poller baseline.
+     * Aborts — loudly, in the log — rather than ever touching a Lyrics box.
+     */
+    private fun buildFillScript(title: String, description: String, style: String): String {
+        val titleLiteral = JSONObject.quote(title)
+        val descLiteral = JSONObject.quote(description)
+        val styleLiteral = JSONObject.quote(style)
+        return """
+(function () {
+$JS_HELPERS
+  function findField(keywords, excludeList) {
+    var els = candidates().filter(function (el) {
+      return excludeList.indexOf(el) === -1 && !isLyricsField(el);
+    });
+    var best = null, bestScore = 0;
+    els.forEach(function (el) {
+      var t = fieldText(el);
+      var score = 0;
+      keywords.forEach(function (k) { if (t.indexOf(k) !== -1) score += 2; });
+      if (score > bestScore) { bestScore = score; best = el; }
+    });
+    return (best && bestScore >= 2) ? best : null;
+  }
+  try {
+    window.__sdBaseline = document.querySelectorAll('a[href*="/song/"]').length;
+    var titleWanted = $titleLiteral;
+    var descText = $descLiteral;
+    var styleText = $styleLiteral;
+
+    var descEl = strictDescField(null);
+    if (!descEl) {
+      window.__sdAbort = true;
+      log('Fill: ABORT — no Song Description field on this page. The description was NOT put in the Lyrics box and Create was NOT clicked, so no credits were spent. Open the Suno Page, switch Suno to Simple mode, then tap create again.');
+      return;
+    }
+    var styleEl = findField(['style', 'genre'], [descEl]);
+    if (!styleEl && styleText) {
+      descText = descText + '\n\nStyle: ' + styleText;
+      log('Fill: no separate Style field (Simple mode) — style folded into the description');
+    }
+    setValue(descEl, descText);
+    log('Fill: Song Description FILLED (' + descEl.tagName + ', placeholder="' + (descEl.getAttribute('placeholder') || '') + '")');
+    if (styleEl && styleText) {
+      setValue(styleEl, styleText);
+      log('Fill: Style FILLED (' + styleEl.tagName + ')');
+    }
+    if (titleWanted) {
+      var titleEl = findField(['song title', 'title'], [descEl, styleEl]);
+      if (titleEl) {
+        setValue(titleEl, titleWanted);
+        log('Fill: Title FILLED — "' + titleWanted + '"');
+      } else {
+        log('Fill: no Title field on this page (Simple mode names the song itself) — title kept in the log only');
+      }
+    }
+  } catch (e) {
+    window.__sdAbort = true;
+    log('Fill: ERROR ' + e.message + ' — Create will NOT be clicked');
   }
 })();
 """
     }
 
-    /** Finds the Create button (a <button> whose text includes "Create") and clicks it. */
+    /** Step 3: click Create — unless the fill aborted. */
     private const val CREATE_CLICK_SCRIPT = """
 (function () {
   function log(m) { try { window.PocBridge.log(m); } catch (e) {} }
   try {
+    if (window.__sdAbort) {
+      log('Create: SKIPPED — the fill was aborted (see above). No credits spent.');
+      return;
+    }
     var btns = Array.prototype.slice.call(document.querySelectorAll('button'));
     var btn = btns.filter(function (b) {
       var t = (b.textContent || '').trim().toLowerCase();
@@ -221,7 +317,7 @@ object SunoDriver {
     if (!btn) { log('Create: button NOT FOUND'); return; }
     if (btn.disabled) { log('Create: button found but DISABLED (form may not have registered the fill)'); return; }
     btn.click();
-    log('Create: button CLICKED — watch for Cloudflare / generation state');
+    log('Create: button CLICKED');
   } catch (e) {
     log('Create: ERROR ' + e.message);
   }
@@ -259,6 +355,7 @@ object SunoDriver {
     var challengeText = bodyText.indexOf('Verify you are human') !== -1 ||
                         (document.title || '').indexOf('Just a moment') !== -1;
     var songs = document.querySelectorAll('a[href*="/song/"]').length;
+    var base = (typeof window.__sdBaseline === 'number') ? window.__sdBaseline : -1;
     var hasForm = !!document.querySelector('textarea');
     var signInVisible = Array.prototype.slice.call(document.querySelectorAll('a, button')).some(function (e) {
       var t = (e.textContent || '').trim().toLowerCase();
@@ -267,10 +364,12 @@ object SunoDriver {
     var state;
     if (challengeFrame || challengeText) {
       state = 'CHALLENGE: Cloudflare verification is showing';
-    } else if (songs > 0) {
-      state = 'RESULTS: ' + songs + ' song link(s) on page';
+    } else if (base >= 0 && songs > base) {
+      state = 'RESULTS: ' + (songs - base) + ' new song(s) since create';
     } else if (hasForm) {
       state = 'FORM: create form visible';
+    } else if (songs > 0) {
+      state = 'LIBRARY: ' + songs + ' song link(s) on page';
     } else if (signInVisible) {
       state = 'SIGNED_OUT: sign-in prompt, no create form';
     } else {

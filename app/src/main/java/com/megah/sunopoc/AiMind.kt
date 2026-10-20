@@ -125,7 +125,7 @@ Rules that can never be broken:
 - Natural human language, the way a real person talks. No poetic AI cliches.
 - BANNED WORDS (never use any of these, in title, description or style):
   echoes, echo, fading, fade, shadow, shadows, twilight, neon, stars,
-  starlight, moonlight, moon, ashes, ash, glow, glowing, dawn.
+  starlight, moonlight, ashes, ash, glow, glowing, dawn.
   (The words night, midnight and light ARE allowed.)
 - The hook comes first: ask for a short intro with the chorus landing
   immediately, so the song sits well in playlist mixes.

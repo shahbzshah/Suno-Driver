@@ -205,6 +205,7 @@
                         android:gravity="top"
                         android:hint="a love song about driving home to her after a long week"
                         android:inputType="textMultiLine|textCapSentences"
+                        android:maxLength="500"
                         android:maxLines="4"
                         android:minLines="3"
                         android:padding="12dp"
@@ -383,7 +384,32 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:fontFamily="@font/body"
-                        android:text="Song description / lyrics"
+                        android:text="Song title (optional)"
+                        android:textColor="@color/sd_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_inset"
+                        android:fontFamily="@font/body"
+                        android:hint="Title — Suno names it if you skip this"
+                        android:inputType="textCapWords"
+                        android:maxLines="1"
+                        android:padding="12dp"
+                        android:textColor="@color/sd_text"
+                        android:textColorHint="@color/sd_text_faint"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:fontFamily="@font/body"
+                        android:text="Song description"
                         android:textColor="@color/sd_text"
                         android:textSize="14sp"
                         android:textStyle="bold" />
