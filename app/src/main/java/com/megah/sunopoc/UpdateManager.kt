@@ -64,7 +64,36 @@ object UpdateManager {
         }
     }
 
-    private fun installedCode(activity: Activity): Int =
+    /**
+     * Manual check for the Settings screen: reports into [status] and, if
+     * a newer release exists, opens the same forced-update gate.
+     */
+    fun manualCheck(activity: Activity, status: TextView, log: (String) -> Unit) {
+        val installed = installedCode(activity)
+        status.text = "Checking GitHub for the latest release…"
+        thread(name = "update-manual-check") {
+            val release = fetchLatest()
+            activity.runOnUiThread {
+                when {
+                    release == null -> {
+                        status.text = "Couldn't check — no connection to GitHub. Try again in a bit."
+                        log("Update: manual check failed (offline?)")
+                    }
+                    release.code > installed -> {
+                        status.text = "Update available: ${release.tag} — you have v$installed."
+                        log("Update: manual check found ${release.tag}")
+                        showGate(activity, release, log)
+                    }
+                    else -> {
+                        status.text = "You're on the latest version (v$installed)."
+                        log("Update: manual check — already latest (v$installed)")
+                    }
+                }
+            }
+        }
+    }
+
+    fun installedCode(activity: Activity): Int =
         try {
             @Suppress("DEPRECATION")
             activity.packageManager.getPackageInfo(activity.packageName, 0).versionCode
@@ -72,7 +101,7 @@ object UpdateManager {
             0
         }
 
-    private fun fetchLatest(): Release? {
+    fun fetchLatest(): Release? {
         return try {
             val conn = URL(LATEST_URL).openConnection() as HttpURLConnection
             conn.connectTimeout = 10_000
@@ -99,7 +128,7 @@ object UpdateManager {
         }
     }
 
-    private fun showGate(activity: Activity, release: Release, log: (String) -> Unit) {
+    fun showGate(activity: Activity, release: Release, log: (String) -> Unit) {
         val pad = (20 * activity.resources.displayMetrics.density).toInt()
         val status = TextView(activity).apply {
             text = "Suno Driver ${release.tag} is ready.\n" +

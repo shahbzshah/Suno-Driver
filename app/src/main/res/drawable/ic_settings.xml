@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings "sliders" icon, drawn from shapes: three lines, three amber knobs. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:left="3dp" android:top="5dp" android:right="3dp" android:height="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="1dp" />
+            <solid android:color="@color/sd_text_faint" />
+        </shape>
+    </item>
+    <item android:left="3dp" android:top="11dp" android:right="3dp" android:height="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="1dp" />
+            <solid android:color="@color/sd_text_faint" />
+        </shape>
+    </item>
+    <item android:left="3dp" android:top="17dp" android:right="3dp" android:height="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="1dp" />
+            <solid android:color="@color/sd_text_faint" />
+        </shape>
+    </item>
+    <item android:left="14dp" android:top="3dp" android:width="6dp" android:height="6dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/sd_amber" />
+        </shape>
+    </item>
+    <item android:left="5dp" android:top="9dp" android:width="6dp" android:height="6dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/sd_amber" />
+        </shape>
+    </item>
+    <item android:left="10dp" android:top="15dp" android:width="6dp" android:height="6dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/sd_amber" />
+        </shape>
+    </item>
+</layer-list>

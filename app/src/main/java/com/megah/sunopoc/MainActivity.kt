@@ -45,6 +45,8 @@ class MainActivity : Activity() {
 
     private lateinit var webView: WebView
     private lateinit var svPanel: ScrollView
+    private lateinit var svSettings: ScrollView
+    private lateinit var tvUpdateStatus: TextView
     private lateinit var llCta: LinearLayout
     private lateinit var etApiKey: EditText
     private lateinit var etIdea: EditText
@@ -105,6 +107,8 @@ class MainActivity : Activity() {
 
         webView = findViewById(R.id.webView)
         svPanel = findViewById(R.id.svPanel)
+        svSettings = findViewById(R.id.svSettings)
+        tvUpdateStatus = findViewById(R.id.tvUpdateStatus)
         llCta = findViewById(R.id.llCta)
         etApiKey = findViewById(R.id.etApiKey)
         etIdea = findViewById(R.id.etIdea)
@@ -131,7 +135,7 @@ class MainActivity : Activity() {
         etDescription.setText(DEFAULT_DESCRIPTION)
         etStyle.setText(DEFAULT_STYLE)
 
-        // --- Tabs + refresh ---
+        // --- Tabs + refresh + settings ---
         btnTabWrite.setOnClickListener { showWrite() }
         btnTabSuno.setOnClickListener { showSuno() }
         findViewById<TextView>(R.id.btnRefresh).setOnClickListener {
@@ -139,7 +143,21 @@ class MainActivity : Activity() {
             webView.reload()
             showSuno()
         }
+        findViewById<View>(R.id.btnSettings).setOnClickListener { showSettings() }
+        findViewById<TextView>(R.id.btnBackSettings).setOnClickListener { showWrite() }
         showWrite()
+
+        // --- Settings: version facts + manual update check ---
+        try {
+            @Suppress("DEPRECATION")
+            val info = packageManager.getPackageInfo(packageName, 0)
+            val versionText = "v${info.versionName} (build ${info.versionCode})"
+            findViewById<TextView>(R.id.tvInfoVersion).text = versionText
+            findViewById<TextView>(R.id.tvUpdateCurrent).text = versionText
+        } catch (e: Exception) { /* version lines stay as placeholders */ }
+        findViewById<TextView>(R.id.btnCheckUpdates).setOnClickListener {
+            UpdateManager.manualCheck(this, tvUpdateStatus) { message -> appendLog(message) }
+        }
 
         // --- Key show/hide + auth state ---
         findViewById<TextView>(R.id.btnToggleKey).setOnClickListener { toggle ->
@@ -150,7 +168,12 @@ class MainActivity : Activity() {
             etApiKey.setSelection(etApiKey.text.length)
             (toggle as TextView).text = if (keyVisible) "HIDE" else "SHOW"
         }
-        etApiKey.addTextChangedListener(simpleWatcher { updateAuthState() })
+        etApiKey.addTextChangedListener(simpleWatcher {
+            // The key field lives in Settings now — persist as he types so
+            // it is saved even if he never taps create in this session.
+            prefs.edit().putString(PREF_API_KEY, etApiKey.text.toString().trim()).apply()
+            updateAuthState()
+        })
 
         // --- Idea char counter (design shows "n / 500 chars") ---
         etIdea.addTextChangedListener(simpleWatcher {
@@ -260,8 +283,9 @@ class MainActivity : Activity() {
         val apiKey = etApiKey.text.toString().trim()
         val idea = etIdea.text.toString().trim()
         if (apiKey.isEmpty()) {
-            appendLog("AI: no NVIDIA API key — paste it once in the key field at the top.")
-            Toast.makeText(this, "Paste your NVIDIA API key first", Toast.LENGTH_LONG).show()
+            appendLog("AI: no NVIDIA API key — add it once in Settings (gear button, top right).")
+            Toast.makeText(this, "Add your NVIDIA API key in Settings first", Toast.LENGTH_LONG).show()
+            showSettings()
             return
         }
         if (idea.isEmpty()) {
@@ -314,6 +338,7 @@ class MainActivity : Activity() {
         svPanel.visibility = View.VISIBLE
         llCta.visibility = View.VISIBLE
         webView.visibility = View.GONE
+        svSettings.visibility = View.GONE
         btnTabWrite.setBackgroundResource(R.drawable.bg_tab_active)
         btnTabWrite.setTextColor(getColor(R.color.sd_on_amber))
         btnTabSuno.background = null
@@ -324,10 +349,22 @@ class MainActivity : Activity() {
         svPanel.visibility = View.GONE
         llCta.visibility = View.GONE
         webView.visibility = View.VISIBLE
+        svSettings.visibility = View.GONE
         btnTabSuno.setBackgroundResource(R.drawable.bg_tab_active)
         btnTabSuno.setTextColor(getColor(R.color.sd_on_amber))
         btnTabWrite.background = null
         btnTabWrite.setTextColor(getColor(R.color.sd_text_dim))
+    }
+
+    private fun showSettings() {
+        svPanel.visibility = View.GONE
+        llCta.visibility = View.GONE
+        webView.visibility = View.GONE
+        svSettings.visibility = View.VISIBLE
+        btnTabWrite.background = null
+        btnTabWrite.setTextColor(getColor(R.color.sd_text_dim))
+        btnTabSuno.background = null
+        btnTabSuno.setTextColor(getColor(R.color.sd_text_dim))
     }
 
     private fun updateChannelUi() {
