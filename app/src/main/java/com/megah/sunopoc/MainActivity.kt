@@ -79,8 +79,14 @@ class MainActivity : Activity() {
         }
     }
 
-    // Beat poller: asks the page's audio element where the music is,
-    // ~5x/second, so the VU meter can sync to the real playback clock.
+    // Beat-follow state: which player signal is live, and an anchor clock
+    // for the signals that report "playing" without a position.
+    private var lastBeatKey = ""
+    private var anchorStartNs = 0L
+    private var anchorWasPlaying = false
+
+    // Beat poller: asks the page's player where the music is, ~5x/second,
+    // so the VU meter can sync to the real playback clock.
     private val beatHandler = Handler(Looper.getMainLooper())
     private val beatRunnable = object : Runnable {
         override fun run() {
@@ -186,8 +192,32 @@ class MainActivity : Activity() {
                     appendLog("STATE -> $state")
                 }
             },
-            onBeat = { isPlaying, position, _ ->
-                runOnUiThread { meterStrip.setPlayback(isPlaying, position) }
+            onBeat = { isPlaying, position, source, audioCount, mediaState ->
+                runOnUiThread {
+                    // Position: trust the audio element when it reports
+                    // one; otherwise run an anchor clock from the moment
+                    // playback was first seen (songs start on beat one).
+                    val pos = when {
+                        position >= 0 -> position
+                        isPlaying -> {
+                            if (!anchorWasPlaying) anchorStartNs = System.nanoTime()
+                            (System.nanoTime() - anchorStartNs) / 1e9
+                        }
+                        else -> 0.0
+                    }
+                    anchorWasPlaying = isPlaying
+                    meterStrip.setPlayback(isPlaying, pos)
+                    // Log only when the picture changes, so the log shows
+                    // which signal the player exposes without spamming.
+                    val key = "$isPlaying|$source|$audioCount|$mediaState"
+                    if (key != lastBeatKey) {
+                        lastBeatKey = key
+                        appendLog(
+                            "Beat: playing=$isPlaying via=$source " +
+                                "audioEls=$audioCount mediaSession=$mediaState"
+                        )
+                    }
+                }
             }
         )
         webView.addJavascriptInterface(bridge, BRIDGE_NAME)

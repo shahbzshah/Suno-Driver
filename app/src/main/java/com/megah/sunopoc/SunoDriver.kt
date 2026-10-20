@@ -28,17 +28,19 @@ object SunoDriver {
      * Exposed to the page as `window.PocBridge`.
      *  - log(String)   : free-form step reports from injected scripts.
      *  - state(String) : polled page-state snapshot (deduplicated by the UI).
-     *  - beat(...)     : the page's audio element reporting itself — whether
-     *                    it is playing and its exact playback position — so
-     *                    the app's VU meter can dance in sync with the music
-     *                    without ever touching the audio stream itself.
+     *  - beat2(...)    : the page's player reporting itself through every
+     *                    signal it exposes (audio element / media session /
+     *                    pause button) so the VU meter can dance in sync
+     *                    with the music without ever touching the audio
+     *                    stream itself.
      * Callbacks arrive on a background thread; the owner must hop to the UI
      * thread before touching views.
      */
     class PocBridge(
         private val onLog: (String) -> Unit,
         private val onState: (String) -> Unit,
-        private val onBeat: (Boolean, Double, Double) -> Unit = { _, _, _ -> }
+        private val onBeat: (Boolean, Double, String, Int, String) -> Unit =
+            { _, _, _, _, _ -> }
     ) {
         @JavascriptInterface
         fun log(message: String) = onLog(message)
@@ -46,34 +48,56 @@ object SunoDriver {
         @JavascriptInterface
         fun state(state: String) = onState(state)
 
+        /**
+         * Playback report from BEAT_SCRIPT. Suno's player technology is not
+         * documented, so the script checks every honest signal:
+         *  - source "audio"   : a real <audio> element is playing; position
+         *                       is its exact currentTime in seconds.
+         *  - source "session" : navigator.mediaSession says playing (the
+         *                       player may use Web Audio, where no element
+         *                       position exists); position is -1.
+         *  - source "button"  : a visible Pause button implies playback;
+         *                       position is -1.
+         *  - source "none"    : nothing is playing; position is -1.
+         * audioCount / mediaState ride along so the app log shows what the
+         * player is actually doing when something looks off.
+         */
         @JavascriptInterface
-        fun beat(playing: Boolean, currentTime: Double, duration: Double) =
-            onBeat(playing, currentTime, duration)
+        fun beat2(playing: Boolean, position: Double, source: String, audioCount: Int, mediaState: String) =
+            onBeat(playing, position, source, audioCount, mediaState)
     }
 
     /**
-     * Polled ~5x/second by the activity while the app is open. Finds the
-     * page's audio element (Suno plays takes through one) and reports its
-     * live playback state through PocBridge.beat(). Read-only: it never
-     * plays, pauses or re-routes the audio — browser security would mute
-     * the stream if the app tried to tap it, so the meter syncs to the
-     * player's own clock instead.
+     * Polled ~5x/second by the activity while the app is open. Read-only:
+     * it never plays, pauses or re-routes the audio — browser security
+     * would mute the stream if the app tried to tap it, so the meter syncs
+     * to the player's own signals instead.
      */
     const val BEAT_SCRIPT = """
 (function () {
   try {
-    if (!window.PocBridge || !window.PocBridge.beat) return;
+    if (!window.PocBridge || !window.PocBridge.beat2) return;
     var audios = document.querySelectorAll('audio');
     var chosen = null;
     for (var i = 0; i < audios.length; i++) {
-      if (!audios[i].paused && audios[i].currentTime > 0) { chosen = audios[i]; break; }
+      if (!audios[i].paused && !audios[i].ended && audios[i].currentTime > 0) { chosen = audios[i]; break; }
       if (!chosen && audios[i].currentTime > 0) chosen = audios[i];
     }
-    if (chosen) {
-      window.PocBridge.beat(!chosen.paused, chosen.currentTime, chosen.duration || 0);
+    var ms = 'none';
+    try { if (navigator.mediaSession) ms = navigator.mediaSession.playbackState || 'none'; } catch (e) {}
+    var playing = false, pos = -1, source = 'none';
+    if (chosen && !chosen.paused && !chosen.ended) {
+      playing = true; pos = chosen.currentTime; source = 'audio';
+    } else if (ms === 'playing') {
+      playing = true; source = 'session';
     } else {
-      window.PocBridge.beat(false, 0, 0);
+      var btns = document.querySelectorAll('button[aria-label]');
+      for (var j = 0; j < btns.length; j++) {
+        var lab = (btns[j].getAttribute('aria-label') || '').toLowerCase();
+        if (lab === 'pause' && btns[j].offsetParent !== null) { playing = true; source = 'button'; break; }
+      }
     }
+    window.PocBridge.beat2(playing, pos, source, audios.length, ms);
   } catch (e) {}
 })();
 """
