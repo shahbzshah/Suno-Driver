@@ -251,6 +251,9 @@ class MainActivity : Activity() {
         // Start the page-state poller (3s) and the beat poller (~200ms).
         pollHandler.postDelayed(pollRunnable, POLL_INTERVAL_MS)
         beatHandler.postDelayed(beatRunnable, BEAT_INTERVAL_MS)
+
+        // Forced-update check: the app always runs the latest release.
+        UpdateManager.checkForForcedUpdate(this) { message -> appendLog(message) }
     }
 
     private fun onAiCreateTapped() {
