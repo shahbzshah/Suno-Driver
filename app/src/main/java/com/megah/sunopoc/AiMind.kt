@@ -159,7 +159,16 @@ Rules that can never be broken:
                 while (true) {
                     attempt++
                     onStatus("AI: asking NVIDIA (${channel.label}) — attempt $attempt…")
-                    val prompt = requestPrompt(apiKey, idea, channel, correction)
+                    val prompt = requestWithRetries(apiKey, idea, channel, correction, onStatus)
+                        ?: run {
+                            onDone(
+                                null,
+                                "NVIDIA didn't answer after several tries — their side is " +
+                                    "slow right now. Nothing was created and no Suno " +
+                                    "credits were used. Wait a minute and tap again."
+                            )
+                            return@execute
+                        }
                     val allText = prompt.title + " " + prompt.description + " " + prompt.style
                     val bad = bannedWordsIn(allText)
                     if (bad.isNotEmpty()) {
@@ -193,6 +202,43 @@ Rules that can never be broken:
         }
     }
 
+    /**
+     * One prompt request with transport resilience: NVIDIA occasionally
+     * answers very slowly or not at all (Megah's log, 2026-10-21: a
+     * single 60s timeout killed a whole create). Timeouts and I/O errors
+     * retry up to 2 extra times before the create is allowed to fail.
+     * Returns null only when every try failed on transport.
+     */
+    private fun requestWithRetries(
+        apiKey: String,
+        idea: String,
+        channel: Channel,
+        correction: String,
+        onStatus: (String) -> Unit
+    ): SongPrompt? {
+        var tries = 0
+        while (true) {
+            try {
+                return requestPrompt(apiKey, idea, channel, correction)
+            } catch (e: Exception) {
+                // A 4xx from NVIDIA (bad key, bad request) will never fix
+                // itself by retrying — surface it immediately, as-is.
+                val m = e.message ?: ""
+                if (m.startsWith("NVIDIA API error 4") &&
+                    !m.startsWith("NVIDIA API error 429")
+                ) throw e
+                tries++
+                if (tries > 2) return null
+                onStatus("AI: NVIDIA didn't answer in time — retrying (${tries + 1} of 3)…")
+                try {
+                    Thread.sleep(3000)
+                } catch (ie: InterruptedException) {
+                    return null
+                }
+            }
+        }
+    }
+
     private fun requestPrompt(
         apiKey: String,
         idea: String,
@@ -218,7 +264,7 @@ Rules that can never be broken:
         val connection = (URL(API_URL).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 30_000
-            readTimeout = 60_000
+            readTimeout = 120_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Authorization", "Bearer $apiKey")
