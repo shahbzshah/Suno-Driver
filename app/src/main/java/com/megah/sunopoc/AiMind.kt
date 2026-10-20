@@ -157,9 +157,30 @@ Rules that can never be broken:
     // idea, it must survive into the title/description by stem.
     private val ANCHORS = listOf("sorry", "apolog", "wish", "forgiv", "thank", "miss")
 
+    // StillMind character guard (Megah's catch, 2026-10-21): a soft
+    // meditation prompt came back from the AI as cinematic orchestral
+    // weight — brass, tolling piano, dense layers. That is a different
+    // channel entirely. These markers can never appear in a StillMind
+    // prompt; if they do, the prompt is rejected and rewritten in-lane.
+    private val STILLMIND_HEAVY = listOf(
+        "brass", "tolling", "cinematic", "orchestral", "epic", "dramatic",
+        "post-genre", "tape grain", "bowed", "dense", "stately"
+    )
+
+    /** StillMind only: correction if the prompt drifted heavy/cinematic. */
+    fun stillMindCorrection(prompt: SongPrompt): String? {
+        val outLower = (prompt.title + " " + prompt.description + " " + prompt.style).lowercase()
+        val heavy = STILLMIND_HEAVY.filter { outLower.contains(it) }
+        if (heavy.isEmpty()) return null
+        return "Your prompt drifted out of the StillMind lane (found: " +
+            heavy.joinToString(", ") + "). StillMind is soft, light and calm: " +
+            "soft piano, gentle pads, nature textures, slow and spacious, " +
+            "instrumental with no vocals. No orchestral weight, no brass, no " +
+            "tolling bells, nothing cinematic, dense or dramatic. Rewrite in-lane."
+    }
+
     /** Returns a correction instruction, or null if the prompt is faithful. */
-    fun fidelityCorrection(idea: String, prompt: SongPrompt): String? {
-        val ideaLower = idea.lowercase()
+    fun fidelityCorrection(idea: String, prompt: SongPrompt): String? {        val ideaLower = idea.lowercase()
         val outLower = (prompt.title + " " + prompt.description).lowercase()
         val missing = ANCHORS.filter { stem ->
             ideaLower.contains(stem) && !outLower.contains(stem)
@@ -234,6 +255,18 @@ Rules that can never be broken:
                         onStatus("AI: prompt softened your idea — asking for a faithful rewrite…")
                         correction = fidelity
                         continue
+                    }
+                    if (channel == Channel.STILL_MIND) {
+                        val lane = stillMindCorrection(prompt)
+                        if (lane != null) {
+                            if (attempt >= 3) {
+                                onDone(null, "AI kept drifting out of the StillMind lane (heavy/cinematic). Nothing was created. Try again.")
+                                return@execute
+                            }
+                            onStatus("AI: prompt drifted heavy/cinematic — asking for an in-lane rewrite…")
+                            correction = lane
+                            continue
+                        }
                     }
                     onDone(prompt, null)
                     return@execute
